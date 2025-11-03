@@ -21,6 +21,9 @@ Adafruit_BME680 bme;
 // 传感器状态
 bool sensorReady = false;
 
+// 界面是否已初始化
+bool uiInitialized = false;
+
 // 海平面气压 (hPa) - 用于计算海拔高度
 #define SEALEVELPRESSURE_HPA (1013.25)
 
@@ -89,36 +92,162 @@ bool initBME688() {
 }
 
 /**
- * 在屏幕上显示传感器数据
+ * 绘制静态 UI 框架(只在首次调用)
+ */
+void drawUIFrame() {
+  M5.Display.clear(TFT_BLACK);
+  
+  // ===== 顶部标题栏 =====
+  M5.Display.fillRect(0, 0, 320, 35, TFT_DARKGREEN);
+  M5.Display.setTextColor(TFT_WHITE);
+  M5.Display.setTextDatum(MC_DATUM);
+  M5.Display.setFont(&fonts::efontCN_16);
+  M5.Display.drawString("环境监测站", 160, 18);
+  
+  // ===== 数据卡片框架 =====
+  int cardY = 40;
+  int cardH = 45;
+  int spacing = 5;
+  
+  // 温度卡片框
+  M5.Display.fillRoundRect(5, cardY, 310, cardH, 6, 0x0841);
+  M5.Display.drawRoundRect(5, cardY, 310, cardH, 6, TFT_DARKGREY);
+  M5.Display.fillCircle(20, cardY + 22, 15, TFT_CYAN);
+  M5.Display.setTextColor(TFT_BLACK);
+  M5.Display.setTextDatum(MC_DATUM);
+  M5.Display.setFont(&fonts::Font4);
+  M5.Display.drawString("T", 20, cardY + 22);
+  M5.Display.setTextColor(TFT_LIGHTGREY);
+  M5.Display.setTextDatum(TL_DATUM);
+  M5.Display.setFont(&fonts::efontCN_12);
+  M5.Display.drawString("温度", 40, cardY + 8);
+  
+  // 湿度卡片框
+  cardY += cardH + spacing;
+  M5.Display.fillRoundRect(5, cardY, 310, cardH, 6, 0x0320);
+  M5.Display.drawRoundRect(5, cardY, 310, cardH, 6, TFT_DARKGREY);
+  M5.Display.fillCircle(20, cardY + 22, 15, TFT_GREEN);
+  M5.Display.setTextColor(TFT_BLACK);
+  M5.Display.setTextDatum(MC_DATUM);
+  M5.Display.setFont(&fonts::Font4);
+  M5.Display.drawString("H", 20, cardY + 22);
+  M5.Display.setTextColor(TFT_LIGHTGREY);
+  M5.Display.setTextDatum(TL_DATUM);
+  M5.Display.setFont(&fonts::efontCN_12);
+  M5.Display.drawString("湿度", 40, cardY + 8);
+  
+  // 气压和气体卡片框(并排)
+  cardY += cardH + spacing;
+  // 气压
+  M5.Display.fillRoundRect(5, cardY, 152, cardH, 6, 0x7300);
+  M5.Display.drawRoundRect(5, cardY, 152, cardH, 6, TFT_DARKGREY);
+  M5.Display.fillCircle(20, cardY + 22, 15, TFT_YELLOW);
+  M5.Display.setTextColor(TFT_BLACK);
+  M5.Display.setTextDatum(MC_DATUM);
+  M5.Display.setFont(&fonts::Font4);
+  M5.Display.drawString("P", 20, cardY + 22);
+  M5.Display.setTextColor(TFT_LIGHTGREY);
+  M5.Display.setTextDatum(TL_DATUM);
+  M5.Display.setFont(&fonts::efontCN_12);
+  M5.Display.drawString("气压", 40, cardY + 5);
+  
+  // 气体
+  M5.Display.fillRoundRect(163, cardY, 152, cardH, 6, 0x4801);
+  M5.Display.drawRoundRect(163, cardY, 152, cardH, 6, TFT_DARKGREY);
+  M5.Display.fillCircle(178, cardY + 22, 15, TFT_MAGENTA);
+  M5.Display.setTextColor(TFT_BLACK);
+  M5.Display.setTextDatum(MC_DATUM);
+  M5.Display.setFont(&fonts::Font4);
+  M5.Display.drawString("G", 178, cardY + 22);
+  M5.Display.setTextColor(TFT_LIGHTGREY);
+  M5.Display.setTextDatum(TL_DATUM);
+  M5.Display.setFont(&fonts::efontCN_12);
+  M5.Display.drawString("气体", 198, cardY + 5);
+  
+  // ===== 底部信息栏 =====
+  int bottomY = 230;
+  M5.Display.setTextColor(TFT_DARKGREY);
+  M5.Display.setTextDatum(TL_DATUM);
+  M5.Display.setFont(&fonts::efontCN_10);
+  M5.Display.drawString("海拔:", 10, bottomY);
+  
+  M5.Display.setTextDatum(TR_DATUM);
+  M5.Display.setTextColor(TFT_GREENYELLOW);
+  M5.Display.drawString("●", 310, bottomY);
+  
+  uiInitialized = true;
+}
+
+/**
+ * 更新数据显示(仅刷新数据区域)
+ */
+void updateDataDisplay(float temp, float humi, float pres, float gas, float alt) {
+  // 如果界面未初始化,先绘制框架
+  if (!uiInitialized) {
+    drawUIFrame();
+  }
+  
+  int cardY = 40;
+  int cardH = 45;
+  int spacing = 5;
+  
+  // === 温度数据 ===
+  // 清除旧数据区域
+  M5.Display.fillRect(40, cardY + 22, 270, 18, 0x0841);
+  M5.Display.setTextColor(TFT_WHITE);
+  M5.Display.setTextDatum(TL_DATUM);
+  M5.Display.setFont(&fonts::Font4);
+  M5.Display.drawString(String(temp, 1), 40, cardY + 22);
+  M5.Display.setTextColor(TFT_CYAN);
+  M5.Display.setFont(&fonts::Font2);
+  M5.Display.drawString("C", 105, cardY + 26);
+  
+  // === 湿度数据 ===
+  cardY += cardH + spacing;
+  M5.Display.fillRect(40, cardY + 22, 270, 18, 0x0320);
+  M5.Display.setTextColor(TFT_WHITE);
+  M5.Display.setTextDatum(TL_DATUM);
+  M5.Display.setFont(&fonts::Font4);
+  M5.Display.drawString(String(humi, 1), 40, cardY + 22);
+  M5.Display.setTextColor(TFT_GREEN);
+  M5.Display.setFont(&fonts::Font2);
+  M5.Display.drawString("%", 105, cardY + 26);
+  
+  // === 气压数据 ===
+  cardY += cardH + spacing;
+  M5.Display.fillRect(40, cardY + 22, 110, 18, 0x7300);
+  M5.Display.setTextColor(TFT_WHITE);
+  M5.Display.setTextDatum(TL_DATUM);
+  M5.Display.setFont(&fonts::Font2);
+  M5.Display.drawString(String(pres, 1), 40, cardY + 24);
+  M5.Display.setTextColor(TFT_YELLOW);
+  M5.Display.setFont(&fonts::Font0);
+  M5.Display.drawString("hPa", 110, cardY + 28);
+  
+  // === 气体数据 ===
+  M5.Display.fillRect(198, cardY + 22, 110, 18, 0x4801);
+  M5.Display.setTextColor(TFT_WHITE);
+  M5.Display.setTextDatum(TL_DATUM);
+  M5.Display.setFont(&fonts::Font2);
+  M5.Display.drawString(String(gas/1000.0, 1), 198, cardY + 24);
+  M5.Display.setTextColor(TFT_MAGENTA);
+  M5.Display.setFont(&fonts::Font0);
+  M5.Display.drawString("kΩ", 268, cardY + 28);
+  
+  // === 海拔数据 ===
+  int bottomY = 230;
+  M5.Display.fillRect(40, bottomY, 100, 12, TFT_BLACK);
+  M5.Display.setTextColor(TFT_ORANGE);
+  M5.Display.setTextDatum(TL_DATUM);
+  M5.Display.setFont(&fonts::efontCN_10);
+  M5.Display.drawString(String(alt, 1) + "m", 40, bottomY);
+}
+
+/**
+ * 在屏幕上显示传感器数据 - 优化版(局部刷新)
  */
 void displayOnScreen(float temp, float humi, float pres, float gas, float alt) {
-  M5.Display.clear();
-  M5.Display.setCursor(10, 10);
-  M5.Display.setTextSize(2);
-  M5.Display.setTextColor(TFT_WHITE);
-
-  M5.Display.println("=== ENV Pro (BME688) ===");
-  M5.Display.println();
-  
-  M5.Display.setTextColor(TFT_CYAN);
-  M5.Display.printf("温度: %.2f C\n", temp);
-  
-  M5.Display.setTextColor(TFT_GREEN);
-  M5.Display.printf("湿度: %.2f %%\n", humi);
-  
-  M5.Display.setTextColor(TFT_YELLOW);
-  M5.Display.printf("气压: %.2f hPa\n", pres);
-  
-  M5.Display.setTextColor(TFT_ORANGE);
-  M5.Display.printf("海拔: %.2f m\n", alt);
-  
-  M5.Display.setTextColor(TFT_MAGENTA);
-  M5.Display.printf("气体: %.2f kOhm\n", gas / 1000.0);
-  
-  M5.Display.println();
-  M5.Display.setTextColor(TFT_LIGHTGREY);
-  M5.Display.setTextSize(1);
-  M5.Display.println("按 BtnA 刷新 | BtnB 扫描I2C");
+  updateDataDisplay(temp, humi, pres, gas, alt);
 }
 
 /**
@@ -134,10 +263,24 @@ void readAndDisplay() {
   unsigned long startTime = millis();
   if (!bme.performReading()) {
     Serial.println("✗ 读取失败!");
-    M5.Display.clear();
-    M5.Display.setCursor(10, 50);
+    
+    // 错误显示 - 美化版
+    M5.Display.clear(TFT_BLACK);
+    M5.Display.fillRoundRect(40, 80, 240, 80, 10, TFT_MAROON);  // 深红色
+    M5.Display.drawRoundRect(40, 80, 240, 80, 10, TFT_RED);
+    
+    M5.Display.setTextDatum(MC_DATUM);
     M5.Display.setTextColor(TFT_RED);
-    M5.Display.println("读取传感器失败!");
+    M5.Display.setFont(&fonts::Font4);
+    M5.Display.drawString("!", 160, 100);
+    
+    M5.Display.setTextColor(TFT_WHITE);
+    M5.Display.setFont(&fonts::efontCN_16);
+    M5.Display.drawString("读取传感器失败", 160, 130);
+    
+    M5.Display.setTextColor(TFT_ORANGE);
+    M5.Display.setFont(&fonts::efontCN_12);
+    M5.Display.drawString("请检查连接", 160, 150);
     return;
   }
   unsigned long readTime = millis() - startTime;
@@ -182,11 +325,39 @@ void setup() {
   Serial.println("╚══════════════════════════════════════════╝");
   Serial.println();
 
-  // 屏幕欢迎信息
-  M5.Display.setTextSize(2);
-  M5.Display.setCursor(10, 50);
-  M5.Display.setTextColor(TFT_WHITE);
-  M5.Display.println("BME688 初始化中...");
+  // 屏幕欢迎动画
+  M5.Display.clear(TFT_BLACK);
+  
+  // 渐变背景
+  for(int i = 0; i < 240; i += 2) {
+    M5.Display.drawLine(0, i, 320, i, M5.Display.color565(0, i/3, i/2));
+  }
+  
+  // Logo 区域
+  M5.Display.fillRoundRect(40, 60, 240, 120, 15, TFT_WHITE);
+  M5.Display.fillRoundRect(45, 65, 230, 110, 12, TFT_DARKGREEN);
+  
+  // 标题
+  M5.Display.setTextDatum(MC_DATUM);
+  M5.Display.setTextColor(TFT_GREENYELLOW);
+  M5.Display.setFont(&fonts::efontCN_24);
+  M5.Display.drawString("环境监测", 160, 95);
+  
+  M5.Display.setTextColor(TFT_LIGHTGREY);
+  M5.Display.setFont(&fonts::efontCN_16);
+  M5.Display.drawString("BME688 传感器", 160, 125);
+  
+  // 加载动画
+  M5.Display.setTextColor(TFT_YELLOW);
+  M5.Display.setFont(&fonts::efontCN_14);
+  M5.Display.drawString("初始化中...", 160, 155);
+  
+  // 进度条
+  M5.Display.fillRoundRect(60, 195, 200, 8, 4, TFT_DARKGREY);
+  for(int i = 0; i < 200; i += 10) {
+    M5.Display.fillRoundRect(60, 195, i, 8, 4, TFT_GREENYELLOW);
+    delay(50);
+  }
 
   // 初始化 I2C
   Wire.begin();
@@ -199,26 +370,51 @@ void setup() {
   sensorReady = initBME688();
 
   if (sensorReady) {
-    M5.Display.clear();
-    M5.Display.setCursor(10, 50);
-    M5.Display.setTextColor(TFT_GREEN);
-    M5.Display.println("BME688 就绪!");
+    // 成功界面
+    M5.Display.clear(TFT_BLACK);
+    M5.Display.fillRoundRect(60, 80, 200, 100, 15, TFT_DARKGREEN);
+    M5.Display.drawRoundRect(60, 80, 200, 100, 15, TFT_GREEN);
+    
+    // 成功图标
+    M5.Display.setTextDatum(MC_DATUM);
+    M5.Display.setTextColor(TFT_GREENYELLOW);
+    M5.Display.setFont(&fonts::Font6);
+    M5.Display.drawString("✓", 160, 105);
+    
+    M5.Display.setTextColor(TFT_WHITE);
+    M5.Display.setFont(&fonts::efontCN_16);
+    M5.Display.drawString("传感器就绪", 160, 145);
+    
+    M5.Display.setTextColor(TFT_LIGHTGREY);
+    M5.Display.setFont(&fonts::efontCN_12);
+    M5.Display.drawString("正在加载数据...", 160, 165);
     delay(1500);
     
     // 首次读取
     readAndDisplay();
   } else {
-    M5.Display.clear();
-    M5.Display.setCursor(10, 30);
+    // 失败界面
+    M5.Display.clear(TFT_BLACK);
+    M5.Display.fillRoundRect(40, 50, 240, 180, 15, TFT_MAROON);  // 深红色
+    M5.Display.drawRoundRect(40, 50, 240, 180, 15, TFT_RED);
+    
+    // 错误图标
+    M5.Display.setTextDatum(MC_DATUM);
     M5.Display.setTextColor(TFT_RED);
-    M5.Display.println("BME688 初始化失败!");
-    M5.Display.println();
-    M5.Display.setTextSize(1);
-    M5.Display.setTextColor(TFT_YELLOW);
-    M5.Display.println("请检查:");
-    M5.Display.println("1. Grove 线缆连接");
-    M5.Display.println("2. ENV Pro 模块供电");
-    M5.Display.println("3. 查看串口日志");
+    M5.Display.setFont(&fonts::Font6);
+    M5.Display.drawString("✗", 160, 85);
+    
+    M5.Display.setTextColor(TFT_WHITE);
+    M5.Display.setFont(&fonts::efontCN_16);
+    M5.Display.drawString("初始化失败", 160, 125);
+    
+    M5.Display.setTextColor(TFT_ORANGE);
+    M5.Display.setFont(&fonts::efontCN_12);
+    M5.Display.setTextDatum(TL_DATUM);
+    M5.Display.drawString("请检查:", 60, 155);
+    M5.Display.drawString("1. Grove 线缆连接", 60, 175);
+    M5.Display.drawString("2. ENV Pro 模块供电", 60, 195);
+    M5.Display.drawString("3. 查看串口日志", 60, 215);
   }
 
   Serial.println("系统启动完成!");
@@ -237,13 +433,30 @@ void loop() {
   // 按钮 B: 重新扫描 I2C
   if (M5.BtnB.wasPressed()) {
     Serial.println(">> 重新扫描 I2C 总线...");
+    uiInitialized = false;  // 重置界面标志
+    M5.Display.clear(TFT_BLACK);
+    M5.Display.setTextDatum(MC_DATUM);
+    M5.Display.setTextColor(TFT_CYAN);
+    M5.Display.setFont(&fonts::efontCN_16);
+    M5.Display.drawString("I2C 总线扫描中...", 160, 100);
     scanI2C();
+    delay(2000);
+    if (sensorReady) {
+      readAndDisplay();
+    }
   }
 
   // 按钮 C: 重新初始化传感器
   if (M5.BtnC.wasPressed()) {
     Serial.println(">> 重新初始化传感器...");
+    uiInitialized = false;  // 重置界面标志
+    M5.Display.clear(TFT_BLACK);
+    M5.Display.setTextDatum(MC_DATUM);
+    M5.Display.setTextColor(TFT_YELLOW);
+    M5.Display.setFont(&fonts::efontCN_16);
+    M5.Display.drawString("重新初始化...", 160, 120);
     sensorReady = initBME688();
+    delay(1000);
     if (sensorReady) {
       readAndDisplay();
     }
