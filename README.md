@@ -1,0 +1,292 @@
+# M5Stack CoreS3 + ENV Pro (BME688) 环境监测项目
+
+基于 **M5Stack CoreS3** 和 **ENV Pro** 模块的环境传感器数据采集系统,实时读取温度、湿度、气压、气体阻值等环境参数。
+
+---
+
+## 📦 硬件清单
+
+| 设备 | 型号 | 说明 |
+|------|------|------|
+| 主控板 | M5Stack CoreS3 (SE版) | ESP32-S3 双核 MCU, 带 LCD 显示屏 |
+| 传感器模块 | ENV Pro | 基于 BME688 的环境传感器 |
+| 连接线 | Grove I2C 线缆 | 4 针接口 (SDA/SCL/VCC/GND) |
+
+---
+
+## 🔌 硬件连接
+
+### 接线方式
+ENV Pro 模块通过 **Grove I2C 接口** 连接到 M5Stack CoreS3:
+
+```
+ENV Pro (Grove)  →  M5Stack CoreS3 Port.A (I2C)
+┌─────────┐          ┌──────────┐
+│ VCC     │ ────────→│ 5V       │
+│ GND     │ ────────→│ GND      │
+│ SDA     │ ────────→│ GPIO2    │
+│ SCL     │ ────────→│ GPIO1    │
+└─────────┘          └──────────┘
+```
+
+### I2C 地址
+- BME688 默认地址: **0x76** 或 **0x77**
+- 程序会自动尝试两个地址
+- 可通过串口查看 I2C 扫描结果
+
+---
+
+## 🛠️ 开发环境
+
+### 必需工具
+- [Visual Studio Code](https://code.visualstudio.com/)
+- [PlatformIO IDE 插件](https://platformio.org/install/ide?install=vscode)
+
+### 依赖库 (自动安装)
+项目已在 `platformio.ini` 中配置好依赖:
+- **M5Unified** (v0.1.14+) - M5Stack 官方统一库
+- **Adafruit BME680 Library** (v2.0.3+) - BME688 驱动
+- **Adafruit Unified Sensor** (v1.1.14+) - 传感器抽象层
+
+---
+
+## 🚀 快速开始
+
+### 1. 克隆/打开项目
+```powershell
+# 如果是新项目,已经在 VS Code 中打开了
+cd e:\development\BME688
+```
+
+### 2. 编译项目
+在 VS Code 中:
+- 点击底部状态栏的 `✓` (PlatformIO: Build) 图标
+- 或按快捷键: `Ctrl+Alt+B`
+
+命令行方式:
+```powershell
+pio run
+```
+
+### 3. 上传固件
+连接 M5Stack CoreS3 到电脑:
+- 点击底部状态栏的 `→` (PlatformIO: Upload) 图标
+- 或按快捷键: `Ctrl+Alt+U`
+
+命令行方式:
+```powershell
+pio run --target upload
+```
+
+### 4. 查看串口输出
+- 点击底部状态栏的 `🔌` (PlatformIO: Serial Monitor) 图标
+- 或按快捷键: `Ctrl+Alt+S`
+
+命令行方式:
+```powershell
+pio device monitor
+```
+
+---
+
+## 📊 功能说明
+
+### 实时监测数据
+- **温度**: 精度 ±1°C, 范围 -40~85°C
+- **湿度**: 精度 ±3%RH, 范围 0~100%
+- **气压**: 精度 ±1 hPa, 范围 300~1100 hPa
+- **气体阻值**: 用于检测空气质量 (VOC)
+- **海拔高度**: 根据气压计算 (需校准海平面气压)
+
+### 交互功能
+| 按钮 | 功能 |
+|------|------|
+| **BtnA** | 手动刷新传感器数据 |
+| **BtnB** | 扫描 I2C 总线设备 |
+| **BtnC** | 重新初始化传感器 |
+
+### 自动更新
+- 每 **5 秒** 自动读取并显示最新数据
+- 数据同时输出到串口和 LCD 屏幕
+
+---
+
+## 🔧 故障排查
+
+### 问题 1: 传感器初始化失败
+**症状**: 串口显示 "BME688 初始化失败"
+
+**解决方案**:
+1. 检查 Grove 线缆是否插紧
+2. 确认 ENV Pro 模块 LED 是否亮起
+3. 查看 I2C 扫描结果 (按 BtnB):
+   ```
+   发现 I2C 设备于地址 0x76  ← 正常
+   ```
+4. 尝试重新上电 (拔插 USB 线)
+
+### 问题 2: 编译错误
+**可能原因**: 依赖库未安装
+
+**解决方案**:
+```powershell
+# 清理并重新下载依赖
+pio lib install
+pio run --target clean
+pio run
+```
+
+### 问题 3: 上传失败
+**症状**: `Failed to connect to ESP32`
+
+**解决方案**:
+1. 按住 M5Stack 的 **Reset** 按钮
+2. 点击上传,等待 "Connecting..." 出现
+3. 松开 Reset 按钮
+
+或者修改 `platformio.ini` 添加:
+```ini
+upload_port = COM3  ; 替换为实际 COM 口
+```
+
+### 问题 4: 数据不稳定
+**原因**: BME688 需要预热
+
+**说明**:
+- 首次通电后,气体传感器需要 **5-10 分钟** 预热
+- 温湿度数据约 **1-2 分钟** 后稳定
+- 这是正常现象,耐心等待即可
+
+---
+
+## 🌟 高级功能: BSEC2 气体算法
+
+### 什么是 BSEC2?
+**Bosch Sensortec Environmental Cluster 2.0** 是官方提供的气体传感器算法库,可计算:
+- **IAQ** (室内空气质量指数, 0-500)
+- **CO₂ 等效浓度** (ppm)
+- **VOC 等效浓度** (ppm)
+- **气体精度等级** (0-3)
+
+### 启用 BSEC2
+
+#### 步骤 1: 修改 platformio.ini
+取消注释并添加:
+```ini
+lib_deps = 
+    m5stack/M5Unified @ ^0.1.14
+    boschsensortec/BSEC2-Library  ; 添加这行
+build_flags = 
+    -D CORE_DEBUG_LEVEL=0
+    -D USE_BSEC2  ; 添加这行
+```
+
+#### 步骤 2: 修改 main.cpp
+替换 `Adafruit_BME680` 为 BSEC2 API (参考代码末尾注释)
+
+#### 步骤 3: 配置状态保存 (可选)
+BSEC2 支持保存传感器状态到 NVS/SD 卡,下次启动快速恢复,跳过预热期。
+
+### ⚠️ 注意事项
+- BSEC2 库使用 Bosch 专有许可,**仅限个人学习使用**
+- 商业应用需联系 Bosch 获取授权
+- 库文件较大 (~200KB),编译时间更长
+
+---
+
+## 📈 下一步扩展
+
+### 1. 数据记录与可视化
+- 保存历史数据到 SD 卡 (CSV 格式)
+- 绘制温湿度曲线图
+- 导出数据到 Excel 分析
+
+### 2. WiFi 联网上传
+- 连接 WiFi AP
+- 上传数据到云平台 (ThingSpeak / MQTT)
+- 远程实时监控
+
+### 3. 告警功能
+- 温度/湿度超阈值蜂鸣器报警
+- 空气质量差时屏幕红色闪烁
+- 推送通知到手机
+
+### 4. 低功耗模式
+- 深度睡眠 + 定时唤醒
+- 电池供电优化
+- 延长续航时间
+
+### 5. 多传感器融合
+- 添加光照传感器 (Light Unit)
+- CO₂ 传感器 (ENVIII Unit)
+- 实现完整环境监测站
+
+---
+
+## 📝 串口输出示例
+
+```
+╔══════════════════════════════════════════╗
+║  M5Stack CoreS3 + ENV Pro (BME688)      ║
+║  环境传感器监测系统                      ║
+╚══════════════════════════════════════════╝
+
+=== I2C 设备扫描 ===
+发现 I2C 设备于地址 0x76
+扫描完成, 共发现 1 个设备
+==================
+
+✓ BME688 初始化成功 (地址: 0x76)
+传感器配置完成:
+  - 温度过采样: 8x
+  - 湿度过采样: 2x
+  - 气压过采样: 4x
+  - IIR 滤波器: 3
+  - 气体加热器: 320°C / 150ms
+
+╔════════════════════════════════════╗
+║     BME688 环境传感器数据          ║
+╠════════════════════════════════════╣
+║ 温度:      23.45 °C             ║
+║ 湿度:      56.78 %              ║
+║ 气压:    1013.25 hPa           ║
+║ 气体阻值:  45.67 kΩ           ║
+║ 海拔高度:  12.34 m            ║
+╠════════════════════════════════════╣
+║ 读取耗时:  87 ms                 ║
+╚════════════════════════════════════╝
+```
+
+---
+
+## 📄 许可证
+
+本项目代码使用 **MIT License** 开源。
+
+第三方库许可:
+- M5Unified: MIT License
+- Adafruit BME680: BSD License
+- BSEC2 (可选): Bosch Software License Agreement
+
+---
+
+## 🤝 贡献与反馈
+
+遇到问题或有改进建议?欢迎:
+- 提交 Issue
+- 发起 Pull Request
+- 分享你的项目案例
+
+---
+
+## 📚 参考资料
+
+- [M5Stack CoreS3 文档](https://docs.m5stack.com/en/core/CoreS3)
+- [ENV Pro 模块说明](https://docs.m5stack.com/en/unit/envpro)
+- [BME688 数据手册](https://www.bosch-sensortec.com/products/environmental-sensors/gas-sensors/bme688/)
+- [Adafruit BME680 库示例](https://github.com/adafruit/Adafruit_BME680)
+- [BSEC2 官方文档](https://github.com/boschsensortec/Bosch-BSEC2-Library)
+
+---
+
+**Happy Making! 🎉**
