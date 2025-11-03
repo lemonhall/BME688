@@ -52,7 +52,41 @@ struct SensorValues {
   float co2eq{NAN};
   float vocEq{NAN};
   uint32_t readMs{0};
+  // 简易 VOC 指数相关
+  float simpleVocIndex{NAN};
+  float gasBaseline_kOhm{NAN};
+  float gasMinWindow_kOhm{NAN};
 };
+// 简易 VOC 指数参数
+static bool baselineEstablished = false;
+static float gasBaseline = NAN;         // 初始基线 (首次稳定阻值)
+static float gasMinWindow = NAN;        // 滑动窗口最小阻值
+static const uint32_t BASELINE_DELAY_MS = 2UL * 60UL * 1000UL; // 启动后 2 分钟再锁定基线
+static const uint32_t WINDOW_UPDATE_INTERVAL_MS = 30UL * 1000UL; // 30 秒更新一次最小值
+static unsigned long lastWindowUpdate = 0;
+
+float computeSimpleVocIndex(float gasCurrent) {
+  // gasCurrent: kOhm
+  if (!baselineEstablished || isnan(gasBaseline) || gasBaseline <= 0) return NAN;
+  // 初始化 window 最小值
+  if (isnan(gasMinWindow)) gasMinWindow = gasCurrent;
+  // 每次更新维护最小值
+  if (gasCurrent < gasMinWindow) gasMinWindow = gasCurrent;
+  // 计算指数 (基于基线下降百分比)
+  float delta = gasBaseline - gasCurrent; // 阻值降低 => VOC 增加
+  float index = (delta / gasBaseline) * 100.0f;
+  if (index < 0) index = 0; // 不允许负值
+  return index;
+}
+
+const char* classifySimpleVoc(float index) {
+  if (isnan(index)) return "建立中";
+  if (index < 2) return "优";
+  if (index < 10) return "正常";
+  if (index < 25) return "偏差";
+  if (index < 50) return "差";
+  return "严重";
+}
 
 void setup() {
   auto cfg = M5.config();
@@ -89,11 +123,10 @@ void loop() {
   }
 
   unsigned long now = millis();
-  if (now - lastUpdate >= UPDATE_INTERVAL_MS) {
+  bool got = envSensor.run(); // 高频调用, 内部决定是否有新输出
+  if (got && (now - lastUpdate >= UPDATE_INTERVAL_MS)) {
     lastUpdate = now;
     uint32_t tStart = millis();
-
-    if (envSensor.run()) {
       uint32_t readMs = millis() - tStart;
       SensorValues vals;
       vals.readMs = readMs;
@@ -107,7 +140,18 @@ void loop() {
 
       vals.temperature = dTemp.signal;
       vals.humidity = dHum.signal;
-      vals.pressure_hPa = dPress.signal / 100.0f; // Pa -> hPa
+      // 压力单位自适应: 若值>5000 认为是 Pa, 否则已是 hPa
+      static bool pressureDebugPrinted = false;
+      float rawPress = dPress.signal;
+      if (!pressureDebugPrinted) {
+        Serial.printf("[DEBUG] 原始压力输出 raw=%.2f\n", rawPress);
+        pressureDebugPrinted = true;
+      }
+      if (rawPress > 5000.0f) {
+        vals.pressure_hPa = rawPress / 100.0f; // Pa->hPa
+      } else {
+        vals.pressure_hPa = rawPress; // 已是 hPa
+      }
       vals.gas_kOhm = dGas.signal / 1000.0f; // Ohm -> kOhm
       vals.altitude_m = calcAltitude(vals.pressure_hPa);
       vals.iaq = dIaq.signal;
@@ -115,17 +159,36 @@ void loop() {
       vals.co2eq = dCo2.signal;
       vals.vocEq = dVoc.signal;
 
+      // 建立基线逻辑：启动 2 分钟后锁定一次当前阻值作为基线 (若未建立)
+      if (!baselineEstablished && now > BASELINE_DELAY_MS) {
+        gasBaseline = vals.gas_kOhm;
+        baselineEstablished = true;
+        gasMinWindow = gasBaseline; // 初始化窗口最小值
+        Serial.printf("[简易VOC] 基线建立: %.2f kΩ\n", gasBaseline);
+      }
+
+      // 周期性重置窗口最小值用于对比
+      if (baselineEstablished && (now - lastWindowUpdate) > WINDOW_UPDATE_INTERVAL_MS) {
+        gasMinWindow = vals.gas_kOhm; // 重置为当前值再继续追踪最小
+        lastWindowUpdate = now;
+        Serial.printf("[简易VOC] 窗口重置, 当前阻值=%.2f kΩ\n", vals.gas_kOhm);
+      }
+
+      vals.simpleVocIndex = computeSimpleVocIndex(vals.gas_kOhm);
+      vals.gasBaseline_kOhm = gasBaseline;
+      vals.gasMinWindow_kOhm = gasMinWindow;
+
       updateDynamicUI(vals);
 
       // Periodic state save
-      if (now - lastStateSave >= STATE_SAVE_INTERVAL_MS) {
+      if (vals.iaqAccuracy == 3 && (now - lastStateSave >= 5UL * 60UL * 1000UL)) { // 精度3后每5min保存
         saveState();
         lastStateSave = now;
       }
 
       // Serial formatted block
       Serial.println("\n╔════════════════════════════════════╗");
-      Serial.println("║     BME688 环境传感器数据 (BSEC2) ║");
+      Serial.println("║  BME688 环境传感器数据 (BSEC2+简易) ║");
       Serial.println("╠════════════════════════════════════╣");
       Serial.printf("║ 温度:      %6.2f °C            ║\n", vals.temperature);
       Serial.printf("║ 湿度:      %6.2f %%             ║\n", vals.humidity);
@@ -135,10 +198,14 @@ void loop() {
       Serial.printf("║ IAQ:       %6.2f (精度:%d)      ║\n", vals.iaq, vals.iaqAccuracy);
       Serial.printf("║ CO2eq:     %6.2f ppm           ║\n", vals.co2eq);
       Serial.printf("║ VOCeq:     %6.2f ppm           ║\n", vals.vocEq);
+      Serial.printf("║ 简易VOC:  %6.2f (级别:%s)   ║\n", vals.simpleVocIndex, classifySimpleVoc(vals.simpleVocIndex));
       Serial.printf("║ 读取耗时:  %3u ms               ║\n", vals.readMs);
       Serial.println("╚════════════════════════════════════╝");
-    } else {
-      Serial.println("读取 BSEC2 数据失败");
+  } else if (!got) {
+    static bool warnedOnce = false;
+    if (!warnedOnce) {
+      Serial.printf("[WARN] 暂无新数据 (bsecStatus=%d, bmeStatus=%d) 等待稳定...\n", envSensor.status, envSensor.sensor.status);
+      warnedOnce = true;
     }
   }
 }
@@ -152,6 +219,9 @@ bool initBsec2() {
     }
   }
   loadState();
+
+  // 设置温度偏移 (LP 模式)
+  envSensor.setTemperatureOffset(TEMP_OFFSET_LP);
 
   // Subscribe to BSEC outputs of interest
   bsec_virtual_sensor_t sensorList[] = {
@@ -169,7 +239,7 @@ bool initBsec2() {
   bsec_sensor_configuration_t requestedSettings[sizeof(sensorList)/sizeof(sensorList[0])];
   uint8_t numRequested = sizeof(sensorList)/sizeof(sensorList[0]);
 
-  if (!envSensor.updateSubscription(sensorList, numRequested, BSEC_SAMPLE_RATE_ULP)) {
+  if (!envSensor.updateSubscription(sensorList, numRequested, BSEC_SAMPLE_RATE_LP)) {
     Serial.println("BSEC2 订阅失败");
     return false;
   }
@@ -246,6 +316,21 @@ void updateDynamicUI(const SensorValues &vals) {
 
   // Indicator green dot (blinks based on IAQ accuracy maybe later)
   M5.Display.fillCircle(regionIndicator.x, regionIndicator.y+5, 5, TFT_GREEN);
+
+  // 在屏幕底部右侧显示 IAQ 或 简易VOC 指标
+  M5.Display.setFont(&efontCN_10);
+  int infoX = regionAlt.x + 100;
+  int infoY = regionAlt.y;
+  M5.Display.fillRect(infoX, infoY, 120, 20, TFT_BLACK);
+  M5.Display.setCursor(infoX, infoY);
+  if (vals.iaqAccuracy < 2) {
+    // 简易 VOC 指数
+    M5.Display.setTextColor(TFT_YELLOW, TFT_BLACK);
+    M5.Display.printf("VOC简: %4.1f %s", vals.simpleVocIndex, classifySimpleVoc(vals.simpleVocIndex));
+  } else {
+    M5.Display.setTextColor(TFT_CYAN, TFT_BLACK);
+    M5.Display.printf("IAQ:%4.0f 精度:%d", vals.iaq, vals.iaqAccuracy);
+  }
 }
 
 void i2cScan() {
