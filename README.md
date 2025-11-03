@@ -282,7 +282,7 @@ BSEC2 支持保存传感器状态到 NVS/SD 卡,下次启动快速恢复,跳过�
 ## 📚 参考资料
 
 - [M5Stack CoreS3 文档](https://docs.m5stack.com/en/core/CoreS3)
-- [ENV Pro 模块说明](https://docs.m5stack.com/en/unit/envpro)
+- [ENV Pro 模块说明](https://docs.m5stack.com/en/unit/ENV%20Pro%20Unit)
 - [BME688 数据手册](https://www.bosch-sensortec.com/products/environmental-sensors/gas-sensors/bme688/)
 - [Adafruit BME680 库示例](https://github.com/adafruit/Adafruit_BME680)
 - [BSEC2 官方文档](https://github.com/boschsensortec/Bosch-BSEC2-Library)
